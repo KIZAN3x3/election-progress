@@ -573,7 +573,7 @@ function saveCellModal(cid, item) {
 function openCandidateForm(id) {
   const c = id ? APP.candidates.find(x => x.id === id) : null;
   const title = c ? '候補者を編集' : '候補者を追加';
-  const etypes = ['市議会議員','県議会議員','町議会議員','村議会議員','その他'];
+  const etypes = ['市議会議員','区議会議員','県議会議員','町議会議員','村議会議員','その他'];
   const eOptions = etypes.map(t => `<option value="${t}" ${c&&c.electionType===t?'selected':''}>${t}</option>`).join('');
 
   openModal(`
