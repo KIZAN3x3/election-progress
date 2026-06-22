@@ -640,10 +640,23 @@ function previewPhoto(e) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = ev => {
-    document.getElementById('photoData').value = ev.target.result;
-    const prev = document.getElementById('photoPreview');
-    if (prev.tagName === 'IMG') { prev.src = ev.target.result; }
-    else { prev.outerHTML = `<img id="photoPreview" src="${ev.target.result}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:8px">`; }
+    const img = new Image();
+    img.onload = () => {
+      // 最大200x200にリサイズして圧縮
+      const MAX = 200;
+      let w = img.width, h = img.height;
+      if (w > h) { if (w > MAX) { h = h * MAX / w; w = MAX; } }
+      else { if (h > MAX) { w = w * MAX / h; h = MAX; } }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const compressed = canvas.toDataURL('image/jpeg', 0.7);
+      document.getElementById('photoData').value = compressed;
+      const prev = document.getElementById('photoPreview');
+      if (prev.tagName === 'IMG') { prev.src = compressed; }
+      else { prev.outerHTML = `<img id="photoPreview" src="${compressed}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:8px">`; }
+    };
+    img.src = ev.target.result;
   };
   reader.readAsDataURL(file);
 }
