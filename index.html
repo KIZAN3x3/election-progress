@@ -635,6 +635,9 @@ function openCandidateForm(id) {
     </div>`);
 }
 
+// Image editor state
+let _editorImg = null, _editorScale = 1, _editorX = 0, _editorY = 0, _editorDragging = false, _editorDragStart = null;
+
 function previewPhoto(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -642,23 +645,117 @@ function previewPhoto(e) {
   reader.onload = ev => {
     const img = new Image();
     img.onload = () => {
-      // 最大200x200にリサイズして圧縮
-      const MAX = 200;
-      let w = img.width, h = img.height;
-      if (w > h) { if (w > MAX) { h = h * MAX / w; w = MAX; } }
-      else { if (h > MAX) { w = w * MAX / h; h = MAX; } }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      const compressed = canvas.toDataURL('image/jpeg', 0.7);
-      document.getElementById('photoData').value = compressed;
-      const prev = document.getElementById('photoPreview');
-      if (prev.tagName === 'IMG') { prev.src = compressed; }
-      else { prev.outerHTML = `<img id="photoPreview" src="${compressed}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:8px">`; }
+      _editorImg = img;
+      _editorScale = 1;
+      _editorX = 0; _editorY = 0;
+      openImageEditor();
     };
     img.src = ev.target.result;
   };
   reader.readAsDataURL(file);
+}
+
+function openImageEditor() {
+  const overlay = document.createElement('div');
+  overlay.id = 'imgEditorOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:#1a1d27;border-radius:12px;padding:24px;width:320px;max-width:95vw">
+      <h3 style="color:#e8eaf6;margin-bottom:16px;font-size:16px">写真を調整</h3>
+      <div style="position:relative;width:240px;height:240px;border-radius:50%;overflow:hidden;margin:0 auto 16px;background:#0f1117;cursor:grab" id="editorCanvas">
+        <canvas id="editorCvs" width="240" height="240" style="display:block"></canvas>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="color:#8890b5;font-size:12px;display:block;margin-bottom:6px">拡大縮小</label>
+        <input type="range" id="editorScale" min="0.5" max="3" step="0.01" value="1" style="width:100%" oninput="onEditorScale(this.value)">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button onclick="closeImageEditor()" style="padding:8px 16px;border-radius:8px;background:#222637;color:#8890b5;border:none;cursor:pointer;font-size:13px">キャンセル</button>
+        <button onclick="confirmImageEditor()" style="padding:8px 16px;border-radius:8px;background:#4f7cff;color:white;border:none;cursor:pointer;font-size:13px;font-weight:600">確定</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const cvs = document.getElementById('editorCvs');
+  const container = document.getElementById('editorCanvas');
+
+  // Auto-fit scale
+  const fit = Math.max(240 / _editorImg.width, 240 / _editorImg.height);
+  _editorScale = fit;
+  _editorX = (240 - _editorImg.width * fit) / 2;
+  _editorY = (240 - _editorImg.height * fit) / 2;
+  document.getElementById('editorScale').min = fit * 0.8;
+  document.getElementById('editorScale').value = fit;
+  drawEditor();
+
+  // Drag
+  container.addEventListener('mousedown', startDrag);
+  container.addEventListener('touchstart', startDrag, {passive:true});
+  window.addEventListener('mousemove', moveDrag);
+  window.addEventListener('touchmove', moveDrag, {passive:false});
+  window.addEventListener('mouseup', endDrag);
+  window.addEventListener('touchend', endDrag);
+}
+
+function drawEditor() {
+  const cvs = document.getElementById('editorCvs');
+  if (!cvs || !_editorImg) return;
+  const ctx = cvs.getContext('2d');
+  ctx.clearRect(0, 0, 240, 240);
+  ctx.drawImage(_editorImg, _editorX, _editorY, _editorImg.width * _editorScale, _editorImg.height * _editorScale);
+}
+
+function onEditorScale(val) {
+  const newScale = parseFloat(val);
+  const cx = 120, cy = 120;
+  _editorX = cx - (cx - _editorX) * (newScale / _editorScale);
+  _editorY = cy - (cy - _editorY) * (newScale / _editorScale);
+  _editorScale = newScale;
+  drawEditor();
+}
+
+function startDrag(e) {
+  _editorDragging = true;
+  const pt = e.touches ? e.touches[0] : e;
+  _editorDragStart = {x: pt.clientX - _editorX, y: pt.clientY - _editorY};
+  document.getElementById('editorCanvas').style.cursor = 'grabbing';
+}
+function moveDrag(e) {
+  if (!_editorDragging) return;
+  if (e.cancelable) e.preventDefault();
+  const pt = e.touches ? e.touches[0] : e;
+  _editorX = pt.clientX - _editorDragStart.x;
+  _editorY = pt.clientY - _editorDragStart.y;
+  drawEditor();
+}
+function endDrag() {
+  _editorDragging = false;
+  const c = document.getElementById('editorCanvas');
+  if (c) c.style.cursor = 'grab';
+}
+
+function closeImageEditor() {
+  const ov = document.getElementById('imgEditorOverlay');
+  if (ov) ov.remove();
+  window.removeEventListener('mousemove', moveDrag);
+  window.removeEventListener('touchmove', moveDrag);
+  window.removeEventListener('mouseup', endDrag);
+  window.removeEventListener('touchend', endDrag);
+}
+
+function confirmImageEditor() {
+  const cvs = document.getElementById('editorCvs');
+  // 出力は200x200に縮小
+  const out = document.createElement('canvas');
+  out.width = 200; out.height = 200;
+  const ctx = out.getContext('2d');
+  ctx.drawImage(cvs, 0, 0, 240, 240, 0, 0, 200, 200);
+  const compressed = out.toDataURL('image/jpeg', 0.8);
+  closeImageEditor();
+  document.getElementById('photoData').value = compressed;
+  const prev = document.getElementById('photoPreview');
+  if (prev && prev.tagName === 'IMG') { prev.src = compressed; }
+  else if (prev) { prev.outerHTML = `<img id="photoPreview" src="${compressed}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:8px">`; }
 }
 
 function saveCandidate(id) {
