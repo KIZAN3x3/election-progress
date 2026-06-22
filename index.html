@@ -469,6 +469,7 @@ function renderSettings() {
       <div class="drag-handle" style="position:static;margin-right:4px;font-size:16px;cursor:grab">⠿</div>
       <div class="settings-item-info"><div class="settings-item-name">${item}</div></div>
       <div class="settings-item-actions">
+        <button class="btn btn-secondary btn-sm" onclick="openEditItemModal('political',${i})">編集</button>
         <button class="btn btn-danger btn-sm" onclick="deleteItem('political',${i})">削除</button>
       </div>
     </div>`).join('');
@@ -478,6 +479,7 @@ function renderSettings() {
       <div class="drag-handle" style="position:static;margin-right:4px;font-size:16px;cursor:grab">⠿</div>
       <div class="settings-item-info"><div class="settings-item-name">${item}</div></div>
       <div class="settings-item-actions">
+        <button class="btn btn-secondary btn-sm" onclick="openEditItemModal('election',${i})">編集</button>
         <button class="btn btn-danger btn-sm" onclick="deleteItem('election',${i})">削除</button>
       </div>
     </div>`).join('');
@@ -695,6 +697,36 @@ function openAddItemModal(type) {
       <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
       <button class="btn btn-primary" onclick="addItem('${type}')">追加</button>
     </div>`);
+}
+
+function openEditItemModal(type, index) {
+  const current = APP.items[type][index];
+  openModal(`
+    <h3>項目を編集</h3>
+    <div class="form-group"><label>項目名</label><input id="editItemName" value="${current}"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveEditItem('${type}',${index})">保存</button>
+    </div>`);
+}
+
+function saveEditItem(type, index) {
+  const newName = document.getElementById('editItemName').value.trim();
+  if (!newName) return;
+  const oldName = APP.items[type][index];
+  // progressキーも更新
+  APP.candidates.forEach(c => {
+    const oldKey = c.id + '__' + oldName;
+    const newKey = c.id + '__' + newName;
+    if (APP.progress[oldKey]) {
+      APP.progress[newKey] = APP.progress[oldKey];
+      delete APP.progress[oldKey];
+    }
+  });
+  APP.items[type][index] = newName;
+  saveData();
+  closeModal();
+  render();
 }
 
 function addItem(type) {
