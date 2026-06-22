@@ -333,18 +333,24 @@ function candidateCardHTML(c, i) {
     ? `<img src="${c.photo}" alt="${c.name}">`
     : `<span>${getInitial(c.name)}</span>`;
   return `
-    <div class="candidate-card" draggable="true" data-index="${i}" data-id="${c.id}">
-      <div class="drag-handle" title="ドラッグで並び替え">⠿</div>
+    <div class="candidate-card" draggable="true" data-index="${i}" data-id="${c.id}" onclick="onCardClick(event,'${c.id}')">
+      <div class="drag-handle" title="ドラッグで並び替え" onclick="event.stopPropagation()">⠿</div>
       <div class="card-avatar">${avatarInner}</div>
-      <div class="card-name" onclick="openCandidateDetail('${c.id}')">${c.name || '（名前未設定）'}</div>
+      <div class="card-name">${c.name || '（名前未設定）'}</div>
       <div class="card-yomi">${c.yomi || ''}</div>
       ${c.electionType ? `<div class="card-type">${c.electionType}</div>` : ''}
       ${c.catchphrase ? `<div class="card-catch">「${c.catchphrase}」</div>` : ''}
-      <div onclick="openCandidateDetail('${c.id}')">
+      <div>
         <div class="card-progress"><div class="card-progress-bar" style="width:${prog}%"></div></div>
         <div class="card-progress-label">${prog}% 完了</div>
       </div>
     </div>`;
+}
+
+function onCardClick(e, id) {
+  // ドラッグ後のクリックは無視
+  if (dragSrcIndex !== null) return;
+  openCandidateDetail(id);
 }
 
 function openCandidateDetail(id) {
@@ -584,12 +590,12 @@ function openCandidateForm(id) {
     </div>
     <div class="form-group form-group-photo">
       <label>顔写真</label>
-      <div class="photo-upload-area" onclick="document.getElementById('photoInput').click()">
+      <input type="file" id="photoInput" accept="image/*" style="display:none" onchange="previewPhoto(event)">
+      <input type="hidden" id="photoData" value="${c&&c.photo?c.photo:''}">
+      <div class="photo-upload-area" onclick="event.stopPropagation();document.getElementById('photoInput').click()">
         ${c&&c.photo ? `<img id="photoPreview" src="${c.photo}">` : `<div id="photoPreview" style="font-size:36px;margin-bottom:8px">📷</div>`}
         <p>タップして写真を選択</p>
       </div>
-      <input type="file" id="photoInput" accept="image/*" style="display:none" onchange="previewPhoto(event)">
-      <input type="hidden" id="photoData" value="${c&&c.photo?c.photo:''}">
     </div>
     <div class="form-row">
       <div class="form-group"><label>氏名 *</label><input id="f_name" value="${c?c.name:''}" placeholder="山田 太郎"></div>
@@ -656,6 +662,9 @@ function previewPhoto(e) {
 }
 
 function openImageEditor() {
+  // Remove any existing editor
+  const existing = document.getElementById('imgEditorOverlay');
+  if (existing) existing.remove();
   const overlay = document.createElement('div');
   overlay.id = 'imgEditorOverlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;display:flex;align-items:center;justify-content:center;';
@@ -888,6 +897,7 @@ function setupDragDrop() {
     const card = e.target.closest('.candidate-card');
     if (card) card.classList.remove('dragging');
     grid.querySelectorAll('.candidate-card').forEach(c => c.classList.remove('drag-over'));
+    setTimeout(() => { dragSrcIndex = null; }, 50);
   });
 
   grid.addEventListener('dragover', e => {
