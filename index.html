@@ -222,8 +222,8 @@
 
 <script>
 // ===== SUPABASE CONFIG =====
-const SUPABASE_URL =  'https://hhlqgxmhbpfhjnjmradq.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhobHFneG1oYnBmaGpuam1yYWRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxNTczMTQsImV4cCI6MjA5NzczMzMxNH0.eUhvfDtT3ip6Svr6nRKtkqo7nIVvHdl9IPLmliDFbZI';
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
 
 async function sbFetch(table, method='GET', body=null, query='') {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${query}`, {
@@ -871,15 +871,6 @@ async function saveCandidate(id) {
   }
   await saveData();
   document.getElementById('modalOverlay').style.display = 'none';
-  render();
-}
-
-function deleteCandidate(id) {
-  if (!confirm('この候補者を削除しますか？')) return;
-  APP.candidates = APP.candidates.filter(x => x.id !== id);
-  const toDelete = Object.keys(APP.progress).filter(k => k.startsWith(id+'__'));
-  toDelete.forEach(k => delete APP.progress[k]);
-  saveData();
   render();
 }
 
