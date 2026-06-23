@@ -6,20 +6,20 @@
 <title>選挙準備進捗管理</title>
 <style>
   :root {
-    --bg: #0f1117;
-    --surface: #1a1d27;
-    --surface2: #222637;
-    --border: #2e3350;
-    --accent: #4f7cff;
-    --accent2: #7c5fff;
+    --bg: #0f0e0c;
+    --surface: #1a1710;
+    --surface2: #221f18;
+    --border: #2e2820;
+    --accent: #f77f00;
+    --accent2: #e05c00;
     --text: #e8eaf6;
-    --text2: #8890b5;
-    --text3: #555e85;
+    --text2: #b5a890;
+    --text3: #857060;
     --done: #2ecc71;
     --doing: #f39c12;
     --none: #2e3350;
-    --skip: #3a2e4a;
-    --skip-text: #7a6a9a;
+    --skip: #2e2820;
+    --skip-text: #8a7a6a;
     --danger: #e74c3c;
     --radius: 12px;
     --radius-sm: 8px;
@@ -204,6 +204,7 @@
 <div class="header">
   <h1>🗳 選挙準備 進捗管理</h1>
   <div class="header-stats" id="headerStats"></div>
+  <button class="btn btn-secondary" onclick="exportCSV()" style="font-size:12px;padding:6px 12px">📥 CSV</button>
 </div>
 
 <div class="tabs">
@@ -220,6 +221,25 @@
 </div>
 
 <script>
+// ===== SUPABASE CONFIG =====
+const SUPABASE_URL =  'https://hhlqgxmhbpfhjnjmradq.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhobHFneG1oYnBmaGpuam1yYWRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxNTczMTQsImV4cCI6MjA5NzczMzMxNH0.eUhvfDtT3ip6Svr6nRKtkqo7nIVvHdl9IPLmliDFbZI';
+
+async function sbFetch(table, method='GET', body=null, query='') {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${query}`, {
+    method,
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': method === 'POST' ? 'resolution=merge-duplicates' : ''
+    },
+    body: body ? JSON.stringify(body) : null
+  });
+  if (method === 'GET') return res.json();
+  return res;
+}
+
 // ===== DATA =====
 const DEFAULT_POLITICAL_ITEMS = [
   '党の立候補者タスキ','2連のぼり','2連ポスター','名刺','DIY号外',
@@ -233,21 +253,73 @@ const DEFAULT_ELECTION_ITEMS = [
   '街頭演説会告知バナー','当選バナー'
 ];
 
-function loadData() {
-  const d = localStorage.getItem('electionApp');
-  if (d) return JSON.parse(d);
-  return {
-    candidates: [],
-    items: {
-      political: [...DEFAULT_POLITICAL_ITEMS],
-      election: [...DEFAULT_ELECTION_ITEMS]
-    },
-    progress: {}
-  };
-}
-function saveData() { localStorage.setItem('electionApp', JSON.stringify(APP)); }
+let APP = {
+  candidates: [],
+  items: { political: [...DEFAULT_POLITICAL_ITEMS], election: [...DEFAULT_ELECTION_ITEMS] },
+  progress: {}
+};
 
-let APP = loadData();
+async function loadData() {
+  showLoading(true);
+  try {
+    const [cands, progs, settings] = await Promise.all([
+      sbFetch('candidates', 'GET', null, '?order=sort_order.asc'),
+      sbFetch('progress', 'GET', null, '?limit=10000'),
+      sbFetch('app_settings', 'GET', null, '')
+    ]);
+    APP.candidates = (cands||[]).map(r => ({id: r.id, ...r.data}));
+    APP.progress = {};
+    (progs||[]).forEach(r => { APP.progress[r.key] = r.data; });
+    const itemsSetting = (settings||[]).find(r => r.key === 'items');
+    if (itemsSetting) APP.items = itemsSetting.data;
+  } catch(e) {
+    console.error('Load error:', e);
+    showToast('データ読み込みエラー', true);
+  }
+  showLoading(false);
+}
+
+async function saveData() {
+  try {
+    // Save candidates
+    for (let i = 0; i < APP.candidates.length; i++) {
+      const c = APP.candidates[i];
+      const {id, ...data} = c;
+      await sbFetch('candidates', 'POST', {id, data, sort_order: i});
+    }
+    // Save items setting
+    await sbFetch('app_settings', 'POST', {key: 'items', data: APP.items});
+  } catch(e) {
+    console.error('Save error:', e);
+    showToast('保存エラー', true);
+  }
+}
+
+async function saveProgress(key, value) {
+  try {
+    await sbFetch('progress', 'POST', {key, data: value});
+    APP.progress[key] = value;
+  } catch(e) {
+    showToast('保存エラー', true);
+  }
+}
+
+async function deleteCandidate(id) {
+  if (!confirm('この候補者を削除しますか？')) return;
+  try {
+    await sbFetch('candidates', 'DELETE', null, `?id=eq.${id}`);
+    // Delete related progress
+    const keys = Object.keys(APP.progress).filter(k => k.startsWith(id+'__'));
+    for (const k of keys) {
+      await sbFetch('progress', 'DELETE', null, `?key=eq.${encodeURIComponent(k)}`);
+    }
+    APP.candidates = APP.candidates.filter(x => x.id !== id);
+    keys.forEach(k => delete APP.progress[k]);
+    render();
+  } catch(e) {
+    showToast('削除エラー', true);
+  }
+}
 let currentTab = 'candidates';
 let currentCandidateId = null;
 let dragSrcIndex = null;
@@ -561,16 +633,16 @@ function selectStatus(btn, s) {
   btn.classList.add('active');
 }
 
-function saveCellModal(cid, item) {
+async function saveCellModal(cid, item) {
   const key = `${cid}__${item}`;
   const statusEl = document.querySelector('.status-btn.active');
   const status = statusEl ? parseInt(statusEl.dataset.status) : 0;
-  APP.progress[key] = {
+  const val = {
     status,
     assignee: document.getElementById('cellAssignee').value.trim(),
     memo: document.getElementById('cellMemo').value.trim()
   };
-  saveData();
+  await saveProgress(key, val);
   closeModal();
   render();
 }
@@ -767,7 +839,7 @@ function confirmImageEditor() {
   else if (prev) { prev.outerHTML = `<img id="photoPreview" src="${compressed}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;margin-bottom:8px">`; }
 }
 
-function saveCandidate(id) {
+async function saveCandidate(id) {
   const name = document.getElementById('f_name').value.trim();
   if (!name) { alert('氏名は必須です'); return; }
   const data = {
@@ -797,7 +869,7 @@ function saveCandidate(id) {
   } else {
     APP.candidates.push({id: genId(), ...data});
   }
-  saveData();
+  await saveData();
   document.getElementById('modalOverlay').style.display = 'none';
   render();
 }
@@ -833,48 +905,58 @@ function openEditItemModal(type, index) {
     </div>`);
 }
 
-function saveEditItem(type, index) {
+async function saveEditItem(type, index) {
   const newName = document.getElementById('editItemName').value.trim();
   if (!newName) return;
   const oldName = APP.items[type][index];
-  // progressキーも更新
-  APP.candidates.forEach(c => {
+  for (const c of APP.candidates) {
     const oldKey = c.id + '__' + oldName;
     const newKey = c.id + '__' + newName;
     if (APP.progress[oldKey]) {
+      await sbFetch('progress', 'POST', {key: newKey, data: APP.progress[oldKey]});
+      await sbFetch('progress', 'DELETE', null, `?key=eq.${encodeURIComponent(oldKey)}`);
       APP.progress[newKey] = APP.progress[oldKey];
       delete APP.progress[oldKey];
     }
-  });
+  }
   APP.items[type][index] = newName;
-  saveData();
+  await saveData();
   closeModal();
   render();
 }
 
-function addItem(type) {
+async function addItem(type) {
   const name = document.getElementById('newItemName').value.trim();
   if (!name) return;
   APP.items[type].push(name);
-  saveData();
+  await saveData();
   closeModal();
   render();
 }
 
-function deleteItem(type, index) {
+async function deleteItem(type, index) {
   if (!confirm('この項目を削除しますか？')) return;
   const item = APP.items[type][index];
   APP.items[type].splice(index, 1);
   const toDelete = Object.keys(APP.progress).filter(k => k.endsWith('__'+item));
-  toDelete.forEach(k => delete APP.progress[k]);
-  saveData();
+  for (const k of toDelete) {
+    await sbFetch('progress', 'DELETE', null, `?key=eq.${encodeURIComponent(k)}`);
+    delete APP.progress[k];
+  }
+  await saveData();
   render();
 }
 
-function resetAll() {
+async function resetAll() {
   if (!confirm('全データをリセットします。元に戻せません。よろしいですか？')) return;
-  localStorage.removeItem('electionApp');
-  APP = loadData();
+  await sbFetch('candidates', 'DELETE', null, '?id=neq.null');
+  await sbFetch('progress', 'DELETE', null, '?key=neq.null');
+  await sbFetch('app_settings', 'DELETE', null, '?key=neq.null');
+  APP = {
+    candidates: [],
+    items: { political: [...DEFAULT_POLITICAL_ITEMS], election: [...DEFAULT_ELECTION_ITEMS] },
+    progress: {}
+  };
   render();
 }
 
@@ -913,7 +995,7 @@ function setupDragDrop() {
     if (card && !card.contains(e.relatedTarget)) card.classList.remove('drag-over');
   });
 
-  grid.addEventListener('drop', e => {
+  grid.addEventListener('drop', async e => {
     e.preventDefault();
     const card = e.target.closest('.candidate-card');
     if (!card) return;
@@ -923,7 +1005,7 @@ function setupDragDrop() {
     const [moved] = APP.candidates.splice(dragSrcIndex, 1);
     APP.candidates.splice(targetIndex, 0, moved);
     dragSrcIndex = null;
-    saveData();
+    await saveData();
     render();
   });
 }
@@ -1030,8 +1112,67 @@ function setupCandSettingsDragDrop() {
   });
 }
 
+// ===== LOADING UI =====
+function showLoading(show) {
+  let el = document.getElementById('loadingOverlay');
+  if (show && !el) {
+    el = document.createElement('div');
+    el.id = 'loadingOverlay';
+    el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:300;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px';
+    el.innerHTML = '<div style="width:40px;height:40px;border:3px solid #f77f00;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite"></div><div style="color:#e8eaf6;font-size:14px">読み込み中...</div>';
+    document.body.appendChild(el);
+  } else if (!show && el) {
+    el.remove();
+  }
+}
+
+function showToast(msg, isError=false) {
+  const t = document.createElement('div');
+  t.style.cssText = `position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:${isError?'#e74c3c':'#f77f00'};color:white;padding:10px 20px;border-radius:8px;font-size:14px;z-index:400;font-weight:600`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
+// CSS animation for spinner
+const style = document.createElement('style');
+style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+document.head.appendChild(style);
+
+// ===== CSV EXPORT =====
+function exportCSV() {
+  const allItems = [...APP.items.political, ...APP.items.election];
+  const statusLabel = ['未着手','進行中','完了','不要'];
+  const headers = ['候補者名', '読み仮名', '選挙種類', '選挙区', ...allItems.map(i => i), ...allItems.map(i => i+'_担当者'), ...allItems.map(i => i+'_メモ')];
+  const rows = APP.candidates.map(c => {
+    const statuses = allItems.map(item => {
+      const p = APP.progress[c.id+'__'+item];
+      return statusLabel[p ? p.status : 0];
+    });
+    const assignees = allItems.map(item => {
+      const p = APP.progress[c.id+'__'+item];
+      return p ? (p.assignee||'') : '';
+    });
+    const memos = allItems.map(item => {
+      const p = APP.progress[c.id+'__'+item];
+      return p ? (p.memo||'') : '';
+    });
+    return [c.name||'', c.yomi||'', c.electionType||'', c.area||'', ...statuses, ...assignees, ...memos];
+  });
+  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '選挙準備進捗_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  showToast('CSVをダウンロードしました');
+}
+
 // ===== INIT =====
-render();
+(async () => {
+  await loadData();
+  render();
+})();
 </script>
 </body>
 </html>
