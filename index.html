@@ -220,10 +220,8 @@
   <div class="modal" id="modalBox" onclick="event.stopPropagation()"></div>
 </div>
 
+<script src="config.js"></script>
 <script>
-// ===== SUPABASE CONFIG =====
-const SUPABASE_URL = 'YOUR_SUPABASE_URL';
-const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
 
 async function sbFetch(table, method='GET', body=null, query='') {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${query}`, {
