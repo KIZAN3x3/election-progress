@@ -204,7 +204,7 @@
 <div class="header">
   <h1>🗳 選挙準備 進捗管理</h1>
   <div class="header-stats" id="headerStats"></div>
-  <button class="btn btn-secondary" onclick="exportCSV()" style="font-size:12px;padding:6px 12px">📥 CSV</button>
+  <button class="btn btn-secondary" onclick="exportExcel()" style="font-size:12px;padding:6px 12px">📥 Excel</button>
 </div>
 
 <div class="tabs">
@@ -1128,33 +1128,112 @@ const style = document.createElement('style');
 style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
 document.head.appendChild(style);
 
-// ===== CSV EXPORT =====
-function exportCSV() {
-  const allItems = [...APP.items.political, ...APP.items.election];
+// ===== EXCEL EXPORT =====
+async function exportExcel() {
+  // Load SheetJS dynamically
+  if (!window.XLSX) {
+    showToast('読み込み中...');
+    await new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+
+  const wb = XLSX.utils.book_new();
   const statusLabel = ['未着手','進行中','完了','不要'];
-  const headers = ['候補者名', '読み仮名', '選挙種類', '選挙区', ...allItems.map(i => i), ...allItems.map(i => i+'_担当者'), ...allItems.map(i => i+'_メモ')];
-  const rows = APP.candidates.map(c => {
-    const statuses = allItems.map(item => {
-      const p = APP.progress[c.id+'__'+item];
-      return statusLabel[p ? p.status : 0];
+  const statusColor = ['FFCCCCCC','FFFFCC00','FF00CC66','FF999999'];
+
+  APP.candidates.forEach(c => {
+    const pItems = APP.items.political;
+    const eItems = APP.items.election;
+    const allItems = [...pItems, ...eItems];
+
+    // Sheet data
+    const rows = [];
+
+    // Header row
+    rows.push([
+      { v: c.name||'', s: { font:{bold:true,sz:14}, fill:{fgColor:{rgb:'FFf77f00'}}, font:{bold:true,color:{rgb:'FFFFFFFF'},sz:14} } },
+      { v: c.electionType||'', s: { font:{bold:true} } },
+      { v: c.area||'', s: { font:{bold:true} } },
+      { v: c.catchphrase||'' }
+    ]);
+    rows.push([]);
+
+    // Column headers
+    rows.push([
+      { v: '項目', s: { font:{bold:true}, fill:{fgColor:{rgb:'FF333333'}}, font:{bold:true,color:{rgb:'FFFFFFFF'}} } },
+      { v: 'カテゴリ', s: { font:{bold:true} } },
+      { v: 'ステータス', s: { font:{bold:true} } },
+      { v: '担当者', s: { font:{bold:true} } },
+      { v: 'メモ', s: { font:{bold:true} } }
+    ]);
+
+    // Political items
+    pItems.forEach(item => {
+      const p = APP.progress[c.id+'__'+item] || {status:0, assignee:'', memo:''};
+      rows.push([
+        { v: item },
+        { v: '政治活動' },
+        { v: statusLabel[p.status] },
+        { v: p.assignee||'' },
+        { v: p.memo||'' }
+      ]);
     });
-    const assignees = allItems.map(item => {
-      const p = APP.progress[c.id+'__'+item];
-      return p ? (p.assignee||'') : '';
+
+    // Election items
+    eItems.forEach(item => {
+      const p = APP.progress[c.id+'__'+item] || {status:0, assignee:'', memo:''};
+      rows.push([
+        { v: item },
+        { v: '選挙活動' },
+        { v: statusLabel[p.status] },
+        { v: p.assignee||'' },
+        { v: p.memo||'' }
+      ]);
     });
-    const memos = allItems.map(item => {
-      const p = APP.progress[c.id+'__'+item];
-      return p ? (p.memo||'') : '';
-    });
-    return [c.name||'', c.yomi||'', c.electionType||'', c.area||'', ...statuses, ...assignees, ...memos];
+
+    // Progress summary
+    const done = allItems.filter(item => (APP.progress[c.id+'__'+item]||{}).status === 2).length;
+    const skip = allItems.filter(item => (APP.progress[c.id+'__'+item]||{}).status === 3).length;
+    const effective = allItems.length - skip;
+    const pct = effective > 0 ? Math.round(done/effective*100) : 100;
+    rows.push([]);
+    rows.push([{ v: `完了率: ${pct}% (${done}/${effective}件)`, s:{font:{bold:true}} }]);
+
+    // Convert to worksheet (simple values only for compatibility)
+    const wsData = rows.map(row => row.map(cell => (cell && cell.v !== undefined) ? cell.v : (cell||'')));
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Column widths
+    ws['!cols'] = [{wch:24},{wch:10},{wch:10},{wch:12},{wch:30}];
+
+    // Sheet name (max 31 chars, no special chars)
+    const sheetName = (c.name||'候補者').slice(0,28).replace(/[\/*?:\[\]]/g,'_');
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
   });
-  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = '選挙準備進捗_' + new Date().toISOString().slice(0,10) + '.csv';
-  a.click();
-  showToast('CSVをダウンロードしました');
+
+  // Summary sheet
+  const summaryData = [['候補者名','選挙種類','選挙区','完了率','完了','進行中','未着手','不要']];
+  APP.candidates.forEach(c => {
+    const allItems = [...APP.items.political, ...APP.items.election];
+    let done=0, doing=0, none=0, skip=0;
+    allItems.forEach(item => {
+      const s = (APP.progress[c.id+'__'+item]||{}).status||0;
+      if(s===2)done++; else if(s===1)doing++; else if(s===3)skip++; else none++;
+    });
+    const effective = allItems.length - skip;
+    const pct = effective > 0 ? Math.round(done/effective*100)+'%' : '100%';
+    summaryData.push([c.name||'', c.electionType||'', c.area||'', pct, done, doing, none, skip]);
+  });
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+  wsSummary['!cols'] = [{wch:16},{wch:12},{wch:16},{wch:8},{wch:6},{wch:8},{wch:8},{wch:6}];
+  XLSX.utils.book_append_sheet(wb, wsSummary, '全体サマリー');
+
+  XLSX.writeFile(wb, '選挙準備進捗_' + new Date().toISOString().slice(0,10) + '.xlsx');
+  showToast('Excelをダウンロードしました');
 }
 
 // ===== INIT =====
